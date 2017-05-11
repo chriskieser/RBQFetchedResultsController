@@ -756,18 +756,6 @@ static void * RBQArrayFetchRequestContext = &RBQArrayFetchRequestContext;
         NSAssert(changedSafeObjects, @"Changed safe objects can't be nil");
         NSAssert(realm, @"Realm can't be nil");
 #endif
-        /**
-         *  If we are not on the main thread then use a semaphore
-         *  to prevent condition where subsequent processing runs
-         *  before the async delegate calls complete on main thread
-         */
-        BOOL useSem = NO;
-        
-        dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-        
-        if (![NSThread isMainThread]) {
-            useSem = YES;
-        }
         
         typeof(self) __weak weakSelf = self;
         
@@ -841,19 +829,25 @@ static void * RBQArrayFetchRequestContext = &RBQArrayFetchRequestContext;
         
         [state.cacheRealm commitWriteTransaction];
         
-        [self runOnMainThread:^(){
-            if ([weakSelf.delegate respondsToSelector:@selector(controllerDidChangeContent:)]) {
-                [weakSelf.delegate controllerDidChangeContent:weakSelf];
-            }
-            
-            if (useSem) {
-                dispatch_semaphore_signal(sem);
-            }
-        }];
-        
-        if (useSem) {
-            dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+        /**
+         *  If we are not on the main thread then use a semaphore
+         *  to prevent condition where subsequent processing runs
+         *  before the async delegate calls complete on main thread
+         */
+        if ([NSThread isMainThread]) {
+            completeUpdates();
+        } else {
+            dispatch_sync(dispatch_get_main_queue(),completeUpdates);
         }
+    }
+}
+
+- (void)completeUpdates
+{
+    typeof(self) __weak weakSelf = self;
+    
+    if ([weakSelf.delegate respondsToSelector:@selector(controllerDidChangeContent:)]) {
+        [weakSelf.delegate controllerDidChangeContent:weakSelf];
     }
 }
 
